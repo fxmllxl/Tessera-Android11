@@ -438,7 +438,9 @@ class HomeView(private val act: HomeActivity) : ViewGroup(act) {
                 drawPage(behind.beginRecording(), 1, list, 0f)
                 behind.endRecording()
                 val r = t * dp(22f)
-                behind.setRenderEffect(if (r < 1f) null else RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+                if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    behind.setRenderEffect(if (r < 1f) null else RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP))
+                }
                 behind.alpha = 1 - 0.3f * t
                 c.drawRenderNode(behind)
             }

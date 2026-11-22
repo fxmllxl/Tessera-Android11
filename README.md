@@ -121,3 +121,23 @@ adb shell cmd role add-role-holder android.app.role.HOME com.zui.launcher
 - 状态栏、通知中心、控制中心、锁屏和多任务界面仍是系统的
 - 这台设备不支持跨窗口模糊，毛玻璃是壁纸采样，不会模糊背后的图标
 - 拖拽排序和添加小组件还没在真机上完整测试
+
+## Android 11（API 30）适配分支
+
+本仓库是 [biyan113/Tessera](https://github.com/biyan113/Tessera) 的 fork，把最低版本从 API 33 降到
+**API 30（Android 11）**，并在 Lenovo Tab P11（TB-J606F，Android 11）上实测通过：横屏 6×5 网格、
+悬浮 Dock、小组件页（时钟/日历/电池）均正常，**重启后自动作为桌面启动，无崩溃**。
+
+只改 `minSdk` 不够——原代码里直接调用了 API 31/33 才有的方法，运行期会抛
+`NoSuchMethodError`。本分支补了版本判断：
+
+| 位置 | API | 处理 |
+|---|---|---|
+| `HomeActivity.onBackInvokedDispatcher` | 33 | `SDK_INT >= 33` 走新回调；旧版改用 `onBackPressed` |
+| `HomeActivity.registerReceiver(..., RECEIVER_EXPORTED)` | 33 | 旧版退回两参 `registerReceiver(receiver, filter)` |
+| `HomeActivity.blurTo` / `HomeView` 的 `setRenderEffect` | 31 | `SDK_INT >= 31` 才设置，旧版不改模糊 |
+
+另外 release 构建关闭了 R8（`isMinifyEnabled = false`）。
+
+代价：**Android 11 上没有真正的窗口模糊**，Dock 的毛玻璃是壁纸采样做出来的近似效果；
+状态栏图标配色与模糊只在 API 31+ 完全生效。

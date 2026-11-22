@@ -22,7 +22,6 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.FrameLayout
-import android.window.OnBackInvokedDispatcher
 
 class HomeActivity : Activity() {
 
@@ -76,10 +75,25 @@ class HomeActivity : Activity() {
         Icons.onLoaded = repaint
         BadgeService.onChanged = repaint
         Glass.load(this) { wallpaperReady() }
-        onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
-            if (overlay != null) closeOverlay() else home.goHome()
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
+            ) { handleBack() }
         }
         home.post { home.scroll = home.width.toFloat(); home.syncWidgets(); home.invalidate() }
+    }
+
+    private fun handleBack() {
+        if (overlay != null) closeOverlay() else home.goHome()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            super.onBackPressed()
+        } else {
+            handleBack()
+        }
     }
 
     private fun seedWeather() {
@@ -105,7 +119,12 @@ class HomeActivity : Activity() {
             addAction(Intent.ACTION_TIME_CHANGED)
             addAction(Intent.ACTION_WALLPAPER_CHANGED)
         }
-        registerReceiver(ticker, f, RECEIVER_EXPORTED)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(ticker, f, RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(ticker, f)
+        }
         loadRecents()
         home.invalidate()
     }
@@ -238,11 +257,13 @@ class HomeActivity : Activity() {
             duration = 220
             addUpdateListener {
                 blurNow = it.animatedValue as Float
-                val r = blurNow * resources.displayMetrics.density
-                home.setRenderEffect(
-                    if (r < 1f) null
-                    else android.graphics.RenderEffect.createBlurEffect(r, r, android.graphics.Shader.TileMode.CLAMP)
-                )
+                if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    val r = blurNow * resources.displayMetrics.density
+                    home.setRenderEffect(
+                        if (r < 1f) null
+                        else android.graphics.RenderEffect.createBlurEffect(r, r, android.graphics.Shader.TileMode.CLAMP)
+                    )
+                }
             }
             start()
         }
