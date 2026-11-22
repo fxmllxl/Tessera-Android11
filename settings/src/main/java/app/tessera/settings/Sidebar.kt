@@ -83,7 +83,7 @@ class Sidebar(private val act: SettingsActivity) : ScrollView(act), Themed {
         column.addView(SearchField(act) { filter(it) }, lp(8, dp(36)))
 
         device = Card(act, true)
-        device.addView(DeviceCard(act, "Legion Y700", osLine()) {
+        device.addView(DeviceCard(act, Build.MODEL.replace('_', ' '), osLine()) {
             act.select("general")
             act.detail.push(aboutPage(act))
         })

@@ -16,7 +16,6 @@ import android.service.notification.StatusBarNotification
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.window.OnBackInvokedDispatcher
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 
@@ -91,7 +90,16 @@ abstract class SheetActivity : Activity() {
             0,
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
         )
-        onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) { close() }
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
+            ) { close() }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) super.onBackPressed() else close()
     }
 
     override fun onResume() {
@@ -114,7 +122,9 @@ abstract class SheetActivity : Activity() {
 
     private fun apply(p: Float) {
         shown = p
-        window.setBackgroundBlurRadius((p * blur * resources.displayMetrics.density / 2.75f).toInt())
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            window.setBackgroundBlurRadius((p * blur * resources.displayMetrics.density / 2.75f).toInt())
+        }
         onProgress(p)
     }
 

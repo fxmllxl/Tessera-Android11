@@ -127,6 +127,7 @@ adb shell cmd role add-role-holder android.app.role.HOME com.zui.launcher
 本仓库是 [biyan113/Tessera](https://github.com/biyan113/Tessera) 的 fork，把最低版本从 API 33 降到
 **API 30（Android 11）**，并在 Lenovo Tab P11（TB-J606F，Android 11）上实测通过：横屏 6×5 网格、
 悬浮 Dock、小组件页（时钟/日历/电池）均正常，**重启后自动作为桌面启动，无崩溃**。
+配套的 `panel`（iOS 风格控制中心）和 `settings`（iPadOS 风格两栏设置）也在这个版本上验证可用。
 
 只改 `minSdk` 不够——原代码里直接调用了 API 31/33 才有的方法，运行期会抛
 `NoSuchMethodError`。本分支补了版本判断：
@@ -136,8 +137,22 @@ adb shell cmd role add-role-holder android.app.role.HOME com.zui.launcher
 | `HomeActivity.onBackInvokedDispatcher` | 33 | `SDK_INT >= 33` 走新回调；旧版改用 `onBackPressed` |
 | `HomeActivity.registerReceiver(..., RECEIVER_EXPORTED)` | 33 | 旧版退回两参 `registerReceiver(receiver, filter)` |
 | `HomeActivity.blurTo` / `HomeView` 的 `setRenderEffect` | 31 | `SDK_INT >= 31` 才设置，旧版不改模糊 |
+| `panel.Sheet` 的 `setBackgroundBlurRadius` | 31 | 同上，旧版跳过 |
+| `settings.SettingsActivity` 的 `onBack` 字段 | 33 | **字段类型改成 `Any?`**，见下 |
+| `panel.Sheet` / `settings.SettingsActivity` | 33 | 旧版用 `onBackPressed()` 兜底 |
 
-另外 release 构建关闭了 R8（`isMinifyEnabled = false`）。
+**有个坑值得单独说：** `SettingsActivity` 原本写成
+`private val onBack = OnBackInvokedCallback { ... }`。字段的类型是 API 33 的接口，
+所以 Activity 类**加载时**就要解析它，Android 11 上直接
+`NoClassDefFoundError: Failed resolution of Landroid/window/OnBackInvokedCallback;`
+——这种崩溃发生在 `Class.newInstance` 阶段，`if (SDK_INT >= 33)` 包起来也没用
+（判断代码还没跑到）。必须把字段类型声明成 `Any?`，只在 API 33+ 的分支里赋
+`OnBackInvokedCallback` 实例，调用处再 `as` 回转。
+
+依赖库的 release 构建也一并关闭 R8（`isMinifyEnabled = false`）：`panel` 和 `settings`
+开着混淆时会出现 `NoClassDefFoundError: Failed resolution of: La/h2;`（混淆后的类找不到）。
+
+另外把 `settings` 里硬编码的机型名 `"Legion Y700"` 改成 `Build.MODEL`，换机器也能正确显示。
 
 代价：**Android 11 上没有真正的窗口模糊**，Dock 的毛玻璃是壁纸采样做出来的近似效果；
 状态栏图标配色与模糊只在 API 31+ 完全生效。

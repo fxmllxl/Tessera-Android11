@@ -18,8 +18,6 @@ import android.view.WindowInsetsController
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.window.OnBackInvokedCallback
-import android.window.OnBackInvokedDispatcher
 import kotlin.math.max
 
 /**
@@ -37,11 +35,14 @@ class SettingsActivity : Activity() {
     private var selected = "general"
     private var backHooked = false
 
-    /** Only registered while there is something of ours to pop; otherwise Back is the system's and finishes us. */
-    private val onBack = OnBackInvokedCallback {
-        val a = alert
-        if (a != null) a.dismiss() else detail.pop()
-    }
+    /** Only registered while there is something of ours to pop; otherwise Back is the system's and finishes us.
+     *  Held as Any so the API 33 interface is never resolved while this class is loaded on older releases. */
+    private val onBack: Any? = if (android.os.Build.VERSION.SDK_INT >= 33) {
+        android.window.OnBackInvokedCallback {
+            val a = alert
+            if (a != null) a.dismiss() else detail.pop()
+        }
+    } else null
 
     /** Kept as a value so onDestroy can tell whether the global hook is still this instance's. */
     private val lateArrival: () -> Unit = { refreshSoon() }
@@ -163,7 +164,11 @@ class SettingsActivity : Activity() {
         super.onDestroy()
         Ui.main.removeCallbacks(refresher)
         if (Sys.onChange === lateArrival) Sys.onChange = null
-        if (backHooked) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(onBack)
+        if (backHooked && android.os.Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(
+                onBack as android.window.OnBackInvokedCallback
+            )
+        }
     }
 
     /** Coalesces bursts (a scan fires several broadcasts at once) into one pass over the visible rows. */
@@ -203,7 +208,22 @@ class SettingsActivity : Activity() {
         val want = alert != null || detail.depth > 1
         if (want == backHooked) return
         backHooked = want
-        if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, onBack)
-        else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(onBack)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val cb = onBack as android.window.OnBackInvokedCallback
+            if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb
+            )
+            else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(cb)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            super.onBackPressed()
+            return
+        }
+        val a = alert
+        if (a != null) a.dismiss() else if (detail.depth > 1) detail.pop() else super.onBackPressed()
     }
 }
