@@ -90,7 +90,7 @@ class HomeView(private val act: HomeActivity) : ViewGroup(act) {
     private var mergeSince = 0L
     private var edgeSince = 0L
 
-    private enum class Mode { IDLE, PRESS, SCROLL, DOCK, TODAY, PULL, MENU, DRAG, IGNORE }
+    private enum class Mode { IDLE, PRESS, SCROLL, DOCK, TODAY, PULL, RECENTS, MENU, DRAG, IGNORE }
     private var mode = Mode.IDLE
     private var downX = 0f
     private var downY = 0f
@@ -934,6 +934,8 @@ class HomeView(private val act: HomeActivity) : ViewGroup(act) {
                             // at its top still opens search.
                             page == 0 && todayMax > 0f && (dy < 0 || todayScroll > 0f) &&
                                 downX < todayX + todayS * 2 + todayGap + dp(16f) -> mode = Mode.TODAY
+                            // Upwards from the lower half is the app switcher, the way iOS does it.
+                            dy < 0 && !jiggle && downY > height * 0.58f -> mode = Mode.RECENTS
                             dy > 0 && !jiggle && page < libIndex -> mode = Mode.PULL
                             else -> mode = Mode.IGNORE
                         }
@@ -961,6 +963,7 @@ class HomeView(private val act: HomeActivity) : ViewGroup(act) {
                         scrollToday(t)
                     }
                     Mode.PULL -> if (dy > dp(70f)) { mode = Mode.IGNORE; act.openSpotlight() }
+                    Mode.RECENTS -> if (dy < -dp(70f)) { mode = Mode.IGNORE; act.openRecents() }
                     Mode.MENU -> if (abs(dx) + abs(dy) > slop * 2) {
                         act.closeOverlay()
                         press?.let { startDrag(it, x, y) }

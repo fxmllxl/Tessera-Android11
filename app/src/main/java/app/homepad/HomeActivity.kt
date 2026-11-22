@@ -295,6 +295,12 @@ class HomeActivity : Activity() {
     }
 
     fun openSpotlight() = show(SpotlightView(this))
+
+    /** Swiping up from the lower part of the home screen opens the app switcher. */
+    fun openRecents() {
+        startActivity(Intent(this, RecentsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION))
+        overridePendingTransition(0, 0)
+    }
     fun openFolder(f: Item.Folder, r: RectF) { show(FolderView(this, f, null, r)); Sfx.pop() }
     fun openCategory(name: String, list: List<AppInfo>, r: RectF? = null) { show(FolderView(this, null, name to list, r)); Sfx.pop() }
     fun openGallery() = show(GalleryView(this))

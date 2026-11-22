@@ -176,6 +176,44 @@ adb shell cmd role add-role-holder android.app.role.HOME com.zui.launcher
 adb shell su -c 'ps -A -o PID,ARGS | grep Tesserad'
 ```
 
+### 应用切换器
+
+在桌面**从下往上滑**（起点在屏幕下半部）会打开应用切换器：横向的大卡片，每张是应用的最后
+一帧画面，下面带图标和名称。点卡片切回该任务，在卡片上向上滑关闭它，点空白处或按返回退出。
+
+数据全部来自 `tesserad`：
+
+- 任务列表读 `dumpsys activity recents`（系统只把别的应用的任务交给系统调用者，
+  `getRecentTasks()` 在普通调用方下只返回自己）
+- 画面读 `/data/system_ce/0/snapshots/<taskId>_reduced.jpg` —— 系统给每个任务留的最后一帧。
+  这版 Android 11 **没有** `ActivityManager.getTaskThumbnail()`，`getRunningTasks()` 的
+  `thumbnail` 也全是 null，所以只能走这条路；任务被清理后文件会消失，卡片会退化成纯色底
+- 切回前台用 `am start -n <组件> -f 0x10020000`（NEW_TASK | REORDER_TO_FRONT）
+
+所以 **`tesserad` 不运行时切换器会一直显示「没有最近使用的应用」**，这不是 bug。
+
+### 彻底去掉联想桌面（可选）
+
+联想桌面在这个系统里背了两个职责：当桌面（HOME），以及提供多任务界面。Tessera 接手桌面后，
+如果还想让多任务也归 Tessera，把三个组件一起禁掉 —— **只禁 `SearchLauncher` 会让
+`TouchInteractionService` 每秒崩溃一次**，因为它启动时要解析自己包的 HOME 组件：
+
+```bash
+adb shell su -c 'pm disable com.tblenovo.launcher/com.android.searchlauncher.SearchLauncher'
+adb shell su -c 'pm disable com.tblenovo.launcher/com.android.quickstep.RecentsActivity'
+adb shell su -c 'pm disable com.tblenovo.launcher/com.android.quickstep.TouchInteractionService'
+```
+
+恢复：
+
+```bash
+adb shell su -c 'pm enable com.tblenovo.launcher/com.android.searchlauncher.SearchLauncher'
+adb shell su -c 'pm enable com.tblenovo.launcher/com.android.quickstep.RecentsActivity'
+adb shell su -c 'pm enable com.tblenovo.launcher/com.android.quickstep.TouchInteractionService'
+```
+
+禁掉之后，系统的「上滑悬停」不再有反应，多任务只走桌面上的上滑手势。
+
 ### 在 Windows 上安装守护进程
 
 `daemon/` 下的脚本以 `#!/system/bin/sh` 开头，**行尾必须是 LF**。如果仓库在 Windows 上按

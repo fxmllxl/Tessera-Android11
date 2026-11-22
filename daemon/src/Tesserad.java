@@ -2,6 +2,7 @@ import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.IBinder;
 import android.system.Os;
+import android.util.Base64;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -12,7 +13,10 @@ import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.file.Files;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Root helper for the Tessera apps. It does the two things an ordinary app cannot:
@@ -76,6 +80,10 @@ public class Tesserad {
             if (cmd.equals("tessera takeover on")) { TAKEOVER.createNewFile(); applyTakeover(); out = "on\n"; }
             else if (cmd.equals("tessera takeover off")) { TAKEOVER.delete(); applyTakeover(); out = "off\n"; }
             else if (cmd.startsWith("tessera sound\t")) out = Sounds.handle(cmd);
+            else if (cmd.equals("tessera tasks")) out = tasks();
+            else if (cmd.startsWith("tessera thumb")) out = thumb(rest(cmd, "tessera thumb"));
+            else if (cmd.startsWith("tessera front")) out = front(rest(cmd, "tessera front"));
+            else if (cmd.startsWith("tessera kill")) out = run("am force-stop " + rest(cmd, "tessera kill"));
             else out = run(cmd);
             OutputStream o = s.getOutputStream();
             o.write(out.getBytes("UTF-8"));
@@ -84,6 +92,72 @@ public class Tesserad {
         } finally {
             try { s.close(); } catch (Exception ignored) {}
         }
+    }
+
+    // ---- recents support ----
+
+    /** Everything after the first space or tab, so "tessera thumb 99" and "tessera thumb\t99" both work. */
+    static String rest(String cmd, String prefix) {
+        return cmd.substring(prefix.length()).replace('\t', ' ').trim().replaceAll("\\s+", " ");
+    }
+
+    /** The jpeg ActivityManager keeps for each task so the recents screen can show it. */
+    static final File SNAPSHOTS = new File("/data/system_ce/0/snapshots");
+    static final Pattern RECENT_LINE = Pattern.compile("Recent #\\d+: Task\\{\\w+ #(\\d+) .*? sz=(\\d+)");
+    static final Pattern TYPE_ON_LINE = Pattern.compile("type=(\\w+)");
+    static final Pattern STACK_ID = Pattern.compile("StackId=(\\d+)");
+    static final Pattern COMPONENT = Pattern.compile("mActivityComponent=(\\S+)");
+
+    /**
+     * One line per task, newest first: id \t stackId \t type \t component.
+     * Read from dumpsys because ActivityManager only hands other apps' tasks to system callers.
+     */
+    static String tasks() {
+        StringBuilder out = new StringBuilder();
+        int id = -1, stack = -1, size = 0;
+        String type = "", comp = "";
+        for (String line : run("dumpsys activity recents").split("\n")) {
+            if (line.contains("Recent #")) {
+                if (id >= 0) out.append(taskLine(id, stack, size, type, comp));
+                id = -1; stack = -1; size = 0; type = ""; comp = "";
+                Matcher m = RECENT_LINE.matcher(line);
+                if (m.find()) { id = Integer.parseInt(m.group(1)); size = Integer.parseInt(m.group(2)); }
+                Matcher t = TYPE_ON_LINE.matcher(line);
+                if (t.find()) type = t.group(1);
+                Matcher s = STACK_ID.matcher(line);
+                if (s.find()) stack = Integer.parseInt(s.group(1));
+            } else if (id >= 0 && comp.isEmpty()) {
+                Matcher c = COMPONENT.matcher(line);
+                if (c.find()) comp = c.group(1);
+            }
+        }
+        if (id >= 0) out.append(taskLine(id, stack, size, type, comp));
+        return out.toString();
+    }
+
+    static String taskLine(int id, int stack, int size, String type, String comp) {
+        // Tasks with no activities left (finished sheets) have nothing to show.
+        if (comp.isEmpty() || size == 0) return "";
+        return id + "\t" + stack + "\t" + type + "\t" + comp + "\n";
+    }
+
+    /** Base64 jpeg of the task's last frame, or empty when the system has no snapshot for it. */
+    static String thumb(String id) {
+        if (!id.matches("\\d+")) return "";
+        File f = new File(SNAPSHOTS, id + "_reduced.jpg");
+        if (!f.exists()) f = new File(SNAPSHOTS, id + ".jpg");
+        if (!f.exists()) return "";
+        try {
+            return Base64.encodeToString(Files.readAllBytes(f.toPath()), Base64.NO_WRAP);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** Brings a task back to the front; `arg` is the task's activity component. */
+    static String front(String arg) {
+        // NEW_TASK | REORDER_TO_FRONT: resumes the existing task instead of launching a new copy.
+        return run("am start -n " + arg + " -f 0x10020000");
     }
 
     static String run(String cmd) {

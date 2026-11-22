@@ -35,6 +35,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".RecentsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:noHistory="true"
+            android:taskAffinity="app.homepad.recents"
+            android:theme="@style/Home" />
+
         <service
             android:name=".BadgeService"
             android:exported="true"
