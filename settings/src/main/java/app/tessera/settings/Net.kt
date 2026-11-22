@@ -1,6 +1,7 @@
 package app.tessera.settings
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -79,6 +80,7 @@ object Wifi {
         app.getSystemService(LocationManager::class.java).isLocationEnabled
 
     /** One entry per SSID (strongest AP wins), alphabetical like iOS so rows do not reshuffle with signal. */
+    @SuppressLint("MissingPermission") // callers gate on canScan(); a rejected call lands in the catch
     @Suppress("DEPRECATION")
     fun scan(): List<Net> = try {
         wm.scanResults.filter { !it.SSID.isNullOrEmpty() }.groupBy { it.SSID }.map { (ssid, aps) ->

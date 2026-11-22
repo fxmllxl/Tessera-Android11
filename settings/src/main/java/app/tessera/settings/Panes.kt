@@ -160,6 +160,7 @@ fun generalPage(act: SettingsActivity) = Page(act, "通用") {
 
 fun aboutPage(act: SettingsActivity): Page {
     var serial: String? = null
+    var soc: String? = null
     val page = Page(act, "关于本机") {
         card {
             info("名称") { Settings.Global.getString(act.contentResolver, Settings.Global.DEVICE_NAME) ?: Build.MODEL }
@@ -170,7 +171,11 @@ fun aboutPage(act: SettingsActivity): Page {
             info("序列号") { serial }
         }
         card {
-            info("处理器") { Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } }
+            info("处理器") {
+                // Build.SOC_MODEL only exists from API 31; below that the property is the answer,
+                // and root is already here for the serial number anyway.
+                soc ?: if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } else null
+            }
             info("内存") {
                 val mi = ActivityManager.MemoryInfo()
                 act.getSystemService(ActivityManager::class.java).getMemoryInfo(mi)
@@ -182,6 +187,12 @@ fun aboutPage(act: SettingsActivity): Page {
         }
     }
     Root.async("getprop ro.serialno") { serial = it?.trim()?.ifEmpty { null }; page.refresh() }
+    // API 31's Build.SOC_MODEL is out of reach here, so ask the system three ways in one trip:
+    // the soc property where it exists, then the kernel's own Hardware line, then the board name.
+    Root.async("getprop ro.soc.model; grep -m1 '^Hardware' /proc/cpuinfo | cut -d: -f2; getprop ro.board.platform") {
+        soc = it?.lineSequence()?.map(String::trim)?.firstOrNull { l -> l.isNotEmpty() && l != "unknown" }
+        page.refresh()
+    }
     return page
 }
 

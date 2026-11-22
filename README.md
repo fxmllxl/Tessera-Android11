@@ -140,8 +140,28 @@ adb shell cmd role add-role-holder android.app.role.HOME com.zui.launcher
 | `panel.Sheet` 的 `setBackgroundBlurRadius` | 31 | 同上，旧版跳过 |
 | `settings.SettingsActivity` 的 `onBack` 字段 | 33 | **字段类型改成 `Any?`**，见下 |
 | `panel.Sheet` / `settings.SettingsActivity` | 33 | 旧版用 `onBackPressed()` 兜底 |
+| `Motion.LaunchView` 的 `Display.getRoundedCorner` | 31 | `SDK_INT >= 31` 才查圆角，旧版取 0 |
+| `panel.NoticeActivity` 的 `setPendingIntentBackgroundActivityStartMode` | 34 | `SDK_INT >= 34` 才构造 options bundle，旧版传 `null` |
+| `settings.Panes` 的 `Build.SOC_MODEL` | 31 | 旧版读 `getprop` / `/proc/cpuinfo` 的 Hardware 行 |
 
-**有个坑值得单独说：** `SettingsActivity` 原本写成
+最后三条是踩过坑才补上的，前两条会真的把应用打死：
+
+- `Display.getRoundedCorner()` 在 `LaunchView` 的字段初始化里，而 `LaunchView` 是**每次点图标启动应用**
+  都会构造的 —— 结果就是点任何图标桌面必崩。这条路径之前没测到，因为测试时一直用 `am start`
+  绕过桌面启动应用。
+- `setPendingIntentBackgroundActivityStartMode()` 在通知中心点通知时调用。它外面套了
+  `try/catch (Exception)`，但 `NoSuchMethodError` 是 `Error` 不是 `Exception`，接不住。
+
+**所以现在用 lint 兜底**：三个模块的 `build.gradle.kts` 里都把 `NewApi` 设成唯一强制的检查
+（`checkOnly += setOf("NewApi")` + `abortOnError = true`）。`minSdk` 是 30、`compileSdk` 是 36，
+任何高于 30 的 API 调用都会让 `gradlew lintRelease` 直接失败，而不会留到真机上那个没人测的分支里崩。
+改完涉及平台 API 的代码后跑一次：
+
+```bash
+gradlew :app:lintRelease :panel:lintRelease :settings:lintRelease
+```
+
+**还有个坑值得单独说：** `SettingsActivity` 原本写成
 `private val onBack = OnBackInvokedCallback { ... }`。字段的类型是 API 33 的接口，
 所以 Activity 类**加载时**就要解析它，Android 11 上直接
 `NoClassDefFoundError: Failed resolution of Landroid/window/OnBackInvokedCallback;`

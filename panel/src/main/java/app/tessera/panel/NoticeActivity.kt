@@ -13,6 +13,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
 import android.text.Layout
@@ -146,10 +147,16 @@ class NoticeActivity : SheetActivity() {
         val pi = n.notification.contentIntent
         close {
             try {
-                // Since Android 14 the sender must opt in before a PendingIntent may start an activity.
-                val o = ActivityOptions.makeBasic()
-                    .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
-                pi?.send(this, 0, null, null, null, null, o.toBundle())
+                // Since Android 14 the sender must opt in before a PendingIntent may start an
+                // activity. Below that the whole options bundle is meaningless -- and calling
+                // setPendingIntentBackgroundActivityStartMode() there throws NoSuchMethodError,
+                // which is an Error, so the catch below would not have saved us.
+                val o = if (Build.VERSION.SDK_INT >= 34) {
+                    ActivityOptions.makeBasic()
+                        .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                        .toBundle()
+                } else null
+                pi?.send(this, 0, null, null, null, null, o)
                 if (n.notification.flags and Notification.FLAG_AUTO_CANCEL != 0) NoticeService.live?.cancelNotification(n.key)
             } catch (_: Exception) {
             }

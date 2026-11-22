@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
 import android.view.RoundedCorner
 import android.view.View
 import kotlin.math.PI
@@ -98,7 +99,16 @@ class LaunchView(private val act: HomeActivity, private val bmp: Bitmap?, privat
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val dst = RectF()
     private val tone = bmp?.let(::toneOf) ?: -1
-    private val corner = act.display?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius?.toFloat() ?: 0f
+    private val corner = cornerRadius()
+
+    /**
+     * Display.getRoundedCorner() only exists from API 31. Android 11 has no way to ask, and 0 is a
+     * fine answer there: the sheet ends up as a plain full-screen rect once the animation settles.
+     */
+    private fun cornerRadius(): Float =
+        if (Build.VERSION.SDK_INT >= 31) {
+            act.display?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius?.toFloat() ?: 0f
+        } else 0f
 
     /** One averaged pixel of the icon: the colour the growing sheet settles into behind the fading artwork. */
     private fun toneOf(b: Bitmap): Int = try {
