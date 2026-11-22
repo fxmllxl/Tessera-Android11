@@ -156,3 +156,34 @@ adb shell cmd role add-role-holder android.app.role.HOME com.zui.launcher
 
 代价：**Android 11 上没有真正的窗口模糊**，Dock 的毛玻璃是壁纸采样做出来的近似效果；
 状态栏图标配色与模糊只在 API 31+ 完全生效。
+
+### 控制中心怎么唤出
+
+`panel` 没有桌面图标，靠 root 守护进程 `tesserad` 读触摸屏原始事件来判断手势：
+
+- **屏幕顶部右侧下滑** → 控制中心（`ControlActivity`）
+- **屏幕顶部其他位置下滑** → 通知中心（`NoticeActivity`）
+
+手指必须落在距屏幕顶边 26dp 以内，向下拖动超过 22dp 且以纵向为主，才会被判定为下拉。
+守护进程只在存在 `/data/adb/tessera/takeover` 时才接管：该文件存在时会把系统的下拉通知栏
+禁用（`cmd statusbar send-disable-flag statusbar-expansion`），改由这两个页面顶替。
+删掉这个文件即可立刻把通知栏还给系统。
+
+不在接管状态时，控制中心里的开关也**点不动** —— 它们通过抽象 socket `tesserad` 转给 root
+执行，守护进程没跑就只是静默失败。所以装完 `panel` 记得确认 `tesserad` 在运行：
+
+```bash
+adb shell su -c 'ps -A -o PID,ARGS | grep Tesserad'
+```
+
+### 在 Windows 上安装守护进程
+
+`daemon/` 下的脚本以 `#!/system/bin/sh` 开头，**行尾必须是 LF**。如果仓库在 Windows 上按
+`core.autocrlf=true` 检出，脚本会带上 CRLF，装进 `/data/adb/service.d/` 后 Magisk 虽然会
+`exec` 它，但解释器路径变成 `/system/bin/sh\r` 导致**静默失败**（不产生任何日志，也不报错）。
+本仓库的 `.gitattributes` 已强制 `*.sh` 用 LF；若在你本地仍然失效：
+
+```bash
+adb shell su -c 'sed -i "s/\r$//" /data/adb/service.d/tessera-daemon.sh'
+adb shell su -c 'chcon u:object_r:magisk_file:s0 /data/adb/service.d/tessera-daemon.sh'
+```
