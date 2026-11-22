@@ -15,6 +15,7 @@ import android.graphics.RenderNode
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.BatteryManager
+import android.os.SystemClock
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.HapticFeedbackConstants
@@ -1023,6 +1024,30 @@ class HomeView(private val act: HomeActivity) : ViewGroup(act) {
     private var page0 = 0f
     private fun dockTapOnly(h: Hit?) = h != null && h.kind != 0
 
+    /** Timing of the previous tap that landed on nothing, for the double tap to sleep. */
+    private var emptyAt = 0L
+    private var emptyX = 0f
+    private var emptyY = 0f
+
+    /**
+     * Two quick taps on bare wallpaper turn the screen off. Only taps that hit nothing count, so
+     * a fast double tap on an icon still just opens the app. The first tap has nothing to undo --
+     * empty space is a no-op apart from putting the today column away, which is harmless.
+     */
+    private fun doubleTapEmpty(x: Float, y: Float): Boolean {
+        val now = SystemClock.uptimeMillis()
+        val near = abs(x - emptyX) < dp(90f) && abs(y - emptyY) < dp(90f)
+        if (now - emptyAt in 1..340 && near) {
+            emptyAt = 0L
+            act.lockScreen()
+            return true
+        }
+        emptyAt = now
+        emptyX = x
+        emptyY = y
+        return false
+    }
+
     private fun tap(x: Float, y: Float) {
         if (jiggle) {
             when {
@@ -1033,6 +1058,11 @@ class HomeView(private val act: HomeActivity) : ViewGroup(act) {
             }
             return
         }
+        // Bare wallpaper: the second of two quick taps turns the screen off. A tap on something
+        // clears the record, so "empty -> icon -> empty" is never read as a double tap.
+        if (press == null) {
+            if (doubleTapEmpty(x, y)) return
+        } else emptyAt = 0L
         if (page == 0 && editRect.contains(x, y)) { startJiggle(); return }
         // Tapping the home screen showing beside the column puts the column away.
         if (page == 0 && press == null && x > todayX + todayS * 2 + todayGap + dp(16f)) { snapTo(1); return }

@@ -22,6 +22,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.widget.FrameLayout
+import android.widget.Toast
 
 class HomeActivity : Activity() {
 
@@ -301,6 +302,28 @@ class HomeActivity : Activity() {
         startActivity(Intent(this, RecentsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION))
         overridePendingTransition(0, 0)
     }
+
+    /**
+     * Double tapping bare wallpaper turns the screen off.
+     *
+     * A launcher cannot lock the screen on its own: the platform only exposes that through Device
+     * Admin or an AccessibilityService, and both need the user to flip a switch first. tesserad is
+     * already running as root for the recents screen, so we just ask it to inject KEYCODE_SLEEP --
+     * no extra permission, nothing to enable, and SLEEP rather than POWER so it can never wake the
+     * device by accident.
+     */
+    fun lockScreen() {
+        Sfx.tick()
+        Thread {
+            // empty answer means it ran; a null socket means the helper is not running
+            if (Recents.root("input keyevent 223") == null) {
+                runOnUiThread {
+                    Toast.makeText(this, "锁屏需要 tesserad 在运行", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
     fun openFolder(f: Item.Folder, r: RectF) { show(FolderView(this, f, null, r)); Sfx.pop() }
     fun openCategory(name: String, list: List<AppInfo>, r: RectF? = null) { show(FolderView(this, null, name to list, r)); Sfx.pop() }
     fun openGallery() = show(GalleryView(this))
