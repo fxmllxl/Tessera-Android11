@@ -130,54 +130,6 @@ adb shell cmd role add-role-holder android.app.role.HOME com.zui.launcher
 悬浮 Dock、小组件页（时钟/日历/电池）均正常，**重启后自动作为桌面启动，无崩溃**。
 配套的 `panel`（iOS 风格控制中心）和 `settings`（iPadOS 风格两栏设置）也在这个版本上验证可用。
 
-只改 `minSdk` 不够——原代码里直接调用了 API 31/33 才有的方法，运行期会抛
-`NoSuchMethodError`。本分支补了版本判断：
-
-| 位置 | API | 处理 |
-|---|---|---|
-| `HomeActivity.onBackInvokedDispatcher` | 33 | `SDK_INT >= 33` 走新回调；旧版改用 `onBackPressed` |
-| `HomeActivity.registerReceiver(..., RECEIVER_EXPORTED)` | 33 | 旧版退回两参 `registerReceiver(receiver, filter)` |
-| `HomeActivity.blurTo` / `HomeView` 的 `setRenderEffect` | 31 | `SDK_INT >= 31` 才设置，旧版不改模糊 |
-| `panel.Sheet` 的 `setBackgroundBlurRadius` | 31 | 同上，旧版跳过 |
-| `settings.SettingsActivity` 的 `onBack` 字段 | 33 | **字段类型改成 `Any?`**，见下 |
-| `panel.Sheet` / `settings.SettingsActivity` | 33 | 旧版用 `onBackPressed()` 兜底 |
-| `Motion.LaunchView` 的 `Display.getRoundedCorner` | 31 | `SDK_INT >= 31` 才查圆角，旧版取 0 |
-| `panel.NoticeActivity` 的 `setPendingIntentBackgroundActivityStartMode` | 34 | `SDK_INT >= 34` 才构造 options bundle，旧版传 `null` |
-| `settings.Panes` 的 `Build.SOC_MODEL` | 31 | 旧版读 `getprop` / `/proc/cpuinfo` 的 Hardware 行 |
-
-最后三条是踩过坑才补上的，前两条会真的把应用打死：
-
-- `Display.getRoundedCorner()` 在 `LaunchView` 的字段初始化里，而 `LaunchView` 是**每次点图标启动应用**
-  都会构造的 —— 结果就是点任何图标桌面必崩。这条路径之前没测到，因为测试时一直用 `am start`
-  绕过桌面启动应用。
-- `setPendingIntentBackgroundActivityStartMode()` 在通知中心点通知时调用。它外面套了
-  `try/catch (Exception)`，但 `NoSuchMethodError` 是 `Error` 不是 `Exception`，接不住。
-
-**所以现在用 lint 兜底**：三个模块的 `build.gradle.kts` 里都把 `NewApi` 设成唯一强制的检查
-（`checkOnly += setOf("NewApi")` + `abortOnError = true`）。`minSdk` 是 30、`compileSdk` 是 36，
-任何高于 30 的 API 调用都会让 `gradlew lintRelease` 直接失败，而不会留到真机上那个没人测的分支里崩。
-改完涉及平台 API 的代码后跑一次：
-
-```bash
-gradlew :app:lintRelease :panel:lintRelease :settings:lintRelease
-```
-
-**还有个坑值得单独说：** `SettingsActivity` 原本写成
-`private val onBack = OnBackInvokedCallback { ... }`。字段的类型是 API 33 的接口，
-所以 Activity 类**加载时**就要解析它，Android 11 上直接
-`NoClassDefFoundError: Failed resolution of Landroid/window/OnBackInvokedCallback;`
-——这种崩溃发生在 `Class.newInstance` 阶段，`if (SDK_INT >= 33)` 包起来也没用
-（判断代码还没跑到）。必须把字段类型声明成 `Any?`，只在 API 33+ 的分支里赋
-`OnBackInvokedCallback` 实例，调用处再 `as` 回转。
-
-依赖库的 release 构建也一并关闭 R8（`isMinifyEnabled = false`）：`panel` 和 `settings`
-开着混淆时会出现 `NoClassDefFoundError: Failed resolution of: La/h2;`（混淆后的类找不到）。
-
-另外把 `settings` 里硬编码的机型名 `"Legion Y700"` 改成 `Build.MODEL`，换机器也能正确显示。
-
-代价：**Android 11 上没有真正的窗口模糊**，Dock 的毛玻璃是壁纸采样做出来的近似效果；
-状态栏图标配色与模糊只在 API 31+ 完全生效。
-
 ### 控制中心怎么唤出
 
 `panel` 没有桌面图标，靠 root 守护进程 `tesserad` 读触摸屏原始事件来判断手势：
@@ -185,46 +137,12 @@ gradlew :app:lintRelease :panel:lintRelease :settings:lintRelease
 - **屏幕顶部右侧下滑** → 控制中心（`ControlActivity`）
 - **屏幕顶部其他位置下滑** → 通知中心（`NoticeActivity`）
 
-手指必须落在距屏幕顶边 26dp 以内，向下拖动超过 22dp 且以纵向为主，才会被判定为下拉。
-守护进程只在存在 `/data/adb/tessera/takeover` 时才接管：该文件存在时会把系统的下拉通知栏
-禁用（`cmd statusbar send-disable-flag statusbar-expansion`），改由这两个页面顶替。
-删掉这个文件即可立刻把通知栏还给系统。
-
-不在接管状态时，控制中心里的开关也**点不动** —— 它们通过抽象 socket `tesserad` 转给 root
-执行，守护进程没跑就只是静默失败。所以装完 `panel` 记得确认 `tesserad` 在运行：
-
-```bash
-adb shell su -c 'ps -A -o PID,ARGS | grep Tesserad'
-```
-
 ### 应用切换器
 
 在桌面**从下往上滑**（起点在屏幕下半部）会打开应用切换器：横向的大卡片，每张是应用的最后
 一帧画面，下面带图标和名称。点卡片切回该任务，在卡片上向上滑关闭它，点空白处或按返回退出。
 
-数据全部来自 `tesserad`：
-
-- 任务列表读 `dumpsys activity recents`（系统只把别的应用的任务交给系统调用者，
-  `getRecentTasks()` 在普通调用方下只返回自己）
-- 画面读 `/data/system_ce/0/snapshots/<taskId>_reduced.jpg` —— 系统给每个任务留的最后一帧。
-  这版 Android 11 **没有** `ActivityManager.getTaskThumbnail()`，`getRunningTasks()` 的
-  `thumbnail` 也全是 null，所以只能走这条路；任务被清理后文件会消失，卡片会退化成纯色底
-- 切回前台用 `am start -n <组件> -f 0x10020000`（NEW_TASK | REORDER_TO_FRONT）
-
-所以 **`tesserad` 不运行时切换器会一直显示「没有最近使用的应用」**，这不是 bug。
-
 ### 双击空白处锁屏
-
-在桌面**没有图标的地方**连点两下（间隔 340 ms 以内、两个点相距 90 dp 以内）就熄屏。
-只认落在空白处的点击：双击图标仍然是打开应用，不会误锁。
-
-普通应用锁屏只有三条路：DeviceAdmin 的 `lockNow()`（要用户在设置里激活管理员，
-等于把「清除所有数据」的权限交出去）、AccessibilityService 的
-`GLOBAL_ACTION_LOCK_SCREEN`（要用户手动开无障碍），或者让系统自己熄屏。
-这台机器上 `tesserad` 本来就是 root，所以直接让它注入 `KEYCODE_SLEEP`（223）——
-不用额外权限、不用开关任何设置，而且用 SLEEP 而不是 POWER，绝不会反过来把屏幕点亮。
-
-`tesserad` 不在时双击会弹一句提示，不静默失败。
 
 ### 彻底去掉联想桌面（可选）
 
@@ -248,14 +166,3 @@ adb shell su -c 'pm enable com.tblenovo.launcher/com.android.quickstep.TouchInte
 
 禁掉之后，系统的「上滑悬停」不再有反应，多任务只走桌面上的上滑手势。
 
-### 在 Windows 上安装守护进程
-
-`daemon/` 下的脚本以 `#!/system/bin/sh` 开头，**行尾必须是 LF**。如果仓库在 Windows 上按
-`core.autocrlf=true` 检出，脚本会带上 CRLF，装进 `/data/adb/service.d/` 后 Magisk 虽然会
-`exec` 它，但解释器路径变成 `/system/bin/sh\r` 导致**静默失败**（不产生任何日志，也不报错）。
-本仓库的 `.gitattributes` 已强制 `*.sh` 用 LF；若在你本地仍然失效：
-
-```bash
-adb shell su -c 'sed -i "s/\r$//" /data/adb/service.d/tessera-daemon.sh'
-adb shell su -c 'chcon u:object_r:magisk_file:s0 /data/adb/service.d/tessera-daemon.sh'
-```
